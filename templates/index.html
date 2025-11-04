@@ -1,0 +1,129 @@
+Set-Location 'C:\Users\boyal\Downloads\speech-to-text (1)\speech-to-text'
+& 'C:\Program Files\Git\cmd\git.exe' branch --show-current
+& 'C:\Program Files\Git\cmd\git.exe' branch -av
+& 'C:\Program Files\Git\cmd\git.exe' ls-remote origin<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Speech-to-Text — Team Speaker Recognition</title>
+  <style>
+    body { font-family: "Poppins", sans-serif; background: #f5f7fa; margin:0; padding:0; text-align:center }
+    header { background:#4CAF50; color:#fff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center }
+    main { margin:24px auto; max-width:900px }
+    .controls { display:flex; gap:12px; justify-content:center; margin-top:12px }
+    button{ background:#4CAF50; color:white; padding:10px 16px; border:none; border-radius:8px; cursor:pointer }
+    button[disabled]{ opacity:0.6; cursor:default }
+    #output{ margin:20px auto; width:90%; max-width:820px; min-height:120px; padding:12px; background:#fff; border-radius:8px; border:1px solid #ddd; text-align:left; white-space:pre-wrap }
+    .enroll-box{ margin-top:14px }
+    input[type=text]{ padding:8px 10px; border-radius:6px; border:1px solid #ccc }
+    textarea { font-family: inherit }
+  </style>
+</head>
+<body>
+  <header>
+    <div>🎙️ Speech-to-Text — Team Speaker Recognition</div>
+    <div style="font-size:14px">Local demo</div>
+  </header>
+
+  <main>
+    <h2>Record audio to enroll or recognize team members</h2>
+
+    <div class="enroll-box">
+      <input id="enroll-name" type="text" placeholder="Member name" />
+      <button id="record-enroll">Record Enrollment</button>
+      <button id="stop-enroll" disabled>Stop Enrollment</button>
+    </div>
+
+    <div class="controls">
+      <button id="record-rec">Record for Recognition</button>
+      <button id="stop-rec" disabled>Stop Recognition</button>
+    </div>
+
+    <div id="output">Transcript / results will appear here...</div>
+
+    <div style="margin-top:12px; width:90%; max-width:820px; margin-left:auto; margin-right:auto; text-align:left">
+      <label for="typed-output" style="display:block; margin-bottom:6px; font-weight:600">Typed transcript (editable)</label>
+      <textarea id="typed-output" rows="6" style="width:100%; padding:10px; border-radius:6px; border:1px solid #ccc"></textarea>
+      <div style="margin-top:8px; display:flex; gap:8px; justify-content:flex-end;">
+        <button id="insert-btn">Insert into focused field</button>
+        <button id="copy-btn">Copy to clipboard</button>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // Simple client-side WAV recorder (captures PCM and encodes WAV)
+    let audioCtx, recStream, processor;
+    let chunks = [];
+    let sampleRate = 16000;
+
+    async function startRecording(){
+      if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate});
+      const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+      recStream = stream;
+      const source = audioCtx.createMediaStreamSource(stream);
+      const bufferSize = 4096;
+      processor = audioCtx.createScriptProcessor(bufferSize, 1, 1);
+      processor.onaudioprocess = e => {
+        const data = e.inputBuffer.getChannelData(0);
+        chunks.push(new Float32Array(data));
+      };
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+    }
+
+    function stopRecording(){
+      if(processor){ processor.disconnect(); processor = null }
+      if(recStream){ recStream.getTracks().forEach(t=>t.stop()); recStream = null }
+      const wavBlob = encodeWAV(chunks, sampleRate);
+      chunks = [];
+      return wavBlob;
+    }
+
+    function encodeWAV(samplesArrays, sampleRate){
+      let totalLen = 0; for(const s of samplesArrays) totalLen += s.length;
+      const samples = new Float32Array(totalLen);
+      let offset = 0; for(const s of samplesArrays){ samples.set(s, offset); offset += s.length }
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+      function writeString(view, offset, string){ for(let i=0;i<string.length;i++) view.setUint8(offset+i, string.charCodeAt(i)); }
+      writeString(view, 0, 'RIFF');
+      view.setUint32(4, 36 + samples.length * 2, true);
+      writeString(view, 8, 'WAVE');
+      writeString(view, 12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeString(view, 36, 'data');
+      view.setUint32(40, samples.length * 2, true);
+      let idx = 44; for(let i=0;i<samples.length;i++){ let s = Math.max(-1, Math.min(1, samples[i])); view.setInt16(idx, s < 0 ? s * 0x8000 : s * 0x7FFF, true); idx += 2 }
+      return new Blob([view], {type:'audio/wav'});
+    }
+
+    // Enrollment controls
+    const recEnrollBtn = document.getElementById('record-enroll');
+    const stopEnrollBtn = document.getElementById('stop-enroll');
+    const enrollNameInput = document.getElementById('enroll-name');
+    recEnrollBtn.onclick = async ()=>{ if(!enrollNameInput.value.trim()){ alert('Enter name first'); return } recEnrollBtn.disabled=true; stopEnrollBtn.disabled=false; document.getElementById('output').innerText='Recording enrollment...'; await startRecording(); };
+    stopEnrollBtn.onclick = async ()=>{ stopEnrollBtn.disabled=true; recEnrollBtn.disabled=false; document.getElementById('output').innerText='Uploading enrollment...'; const blob = stopRecording(); const fd = new FormData(); fd.append('name', enrollNameInput.value.trim()); fd.append('file', blob, 'enroll.wav'); fetch('/enroll', {method:'POST', body: fd}).then(r=>r.json()).then(j=>{ document.getElementById('output').innerText = 'Enrolled: ' + (j.name || JSON.stringify(j)); }).catch(e=>{ document.getElementById('output').innerText = 'Enroll error: '+e }); };
+
+    // Recognition controls and browser ASR
+    const recRecBtn = document.getElementById('record-rec');
+    const stopRecBtn = document.getElementById('stop-rec');
+    let browserTranscript = '';
+    let recognition = null;
+    if('webkitSpeechRecognition' in window){ recognition = new webkitSpeechRecognition(); recognition.lang='en-US'; recognition.interimResults=true; recognition.continuous=true; recognition.onresult = (e)=>{ let t=''; for(let i=e.resultIndex;i<e.results.length;i++) t+=e.results[i][0].transcript; browserTranscript = t; document.getElementById('output').innerText = t; const ta = document.getElementById('typed-output'); if(ta) ta.value = t }; recognition.onerror = ()=>{} }
+    recRecBtn.onclick = async ()=>{ recRecBtn.disabled=true; stopRecBtn.disabled=false; document.getElementById('output').innerText='Recording for recognition...'; browserTranscript=''; if(recognition) recognition.start(); await startRecording(); };
+    stopRecBtn.onclick = async ()=>{ stopRecBtn.disabled=true; recRecBtn.disabled=false; if(recognition) recognition.stop(); const blob = stopRecording(); document.getElementById('output').innerText='Uploading for recognition...'; const fd = new FormData(); fd.append('file', blob, 'rec.wav'); fd.append('transcript', browserTranscript || ''); try{ const res = await fetch('/recognize', {method:'POST', body:fd}); const j = await res.json(); const out = 'Speaker: ' + (j.speaker || 'Unknown') + '\nConfidence: ' + (j.score||0).toFixed(3) + '\nTranscript: ' + (j.transcript || browserTranscript); document.getElementById('output').innerText = out; const ta = document.getElementById('typed-output'); if(ta){ const prefix = j.speaker ? ('['+j.speaker+'] ') : ''; ta.value = (ta.value && ta.value.trim() ? ta.value.trim() + '\n' : '') + prefix + (j.transcript || browserTranscript) } }catch(e){ document.getElementById('output').innerText = 'Recognition error: '+e } };
+
+    // Insert/copy handlers
+    document.getElementById('insert-btn').addEventListener('click', ()=>{ const ta = document.getElementById('typed-output'); const text = ta.value || ''; const active = document.activeElement; if(active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')){ const start = active.selectionStart || 0; const end = active.selectionEnd || 0; const val = active.value || ''; active.value = val.slice(0,start) + text + val.slice(end); const pos = start + text.length; active.setSelectionRange(pos,pos); active.focus(); } else { alert('No editable field focused in the page. Click into an input or textarea to insert.'); } });
+    document.getElementById('copy-btn').addEventListener('click', async ()=>{ const ta = document.getElementById('typed-output'); const text = ta.value || ''; try{ await navigator.clipboard.writeText(text); alert('Copied to clipboard'); }catch(e){ alert('Copy failed: ' + e); } });
+  </script>
+</body>
+</html>

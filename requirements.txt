@@ -1,0 +1,6 @@
+Flask>=2.0
+numpy
+scipy
+scikit-learn
+soundfile
+python_speech_features

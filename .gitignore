@@ -1,0 +1,15 @@
+/.venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+.env
+enrollments.db
+enrollments.json
+tmp_*.wav
+.vscode/
+*.log
+.DS_Store
+/.pytest_cache
